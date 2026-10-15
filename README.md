@@ -1,4 +1,4 @@
-# Radware Account Health Analyzer
+# Tenant Account Analyzer
 
 Aplicación web interna de solo lectura, construida con Streamlit, para consultar información de Application Protection en Radware Cloud y revisar adopción de protecciones por aplicación.
 

@@ -1,6 +1,10 @@
 import pandas as pd
 import streamlit as st
-from modules.entitlement_profiles import filter_columns_by_entitlement
+from modules.entitlement_profiles import (
+    filter_columns_by_entitlement,
+    get_account_settings_key,
+)
+from modules.waf_progress import calculate_waf_progress
 from ui_feedback import radware_inline_loader
 
 PRIORITY_COLUMNS = [
@@ -435,10 +439,6 @@ def normalize_application_adoption(client, applications):
                     ["cspEnabled"],
                 ],
             ),
-            "DDoS": get_app_status(
-                app,
-                [["featuresData", "wafFeatureData", "protectionConfiguration", "ddosProtection", "protectionStatus"]],
-            ),
         }
 
         rows.append(row)
@@ -497,6 +497,88 @@ def calculate_adoption_metrics(df):
         "Source Blocking Enabled": count_enabled(df, "Source Blocking", [True, "ACTIVE", "ENABLE", "ENABLED", "BLOCK_AND_REPORT", "Configured"]),
     }
 
+
+def render_waf_progress_dashboard(df):
+    st.subheader("WAF Implementation Progress")
+
+    context = st.session_state.get("context", "")
+    settings_key = get_account_settings_key(context)
+    application_ids = df["Application ID"].dropna().drop_duplicates().tolist()
+    app_names = dict(zip(df["Application ID"], df["Application Name"]))
+
+    selected_application_ids = st.multiselect(
+        "Applications included in progress",
+        application_ids,
+        default=application_ids,
+        format_func=lambda app_id: f"{app_names.get(app_id, 'Unknown')} ({app_id})",
+        key=f"progress_application_scope_{settings_key}",
+    )
+
+    licensed_modules = st.session_state.get("licensed_modules", [])
+    if not licensed_modules:
+        st.info("Select the WAF features included in the license to calculate implementation progress.")
+
+    blocking_modules = st.session_state.get("blocking_modules", [])
+    if licensed_modules and not blocking_modules:
+        st.info(
+            "No feature is marked as requiring Blocking. Progress will measure "
+            "enabled/configured state, and Report Only/Passive will count as active."
+        )
+
+    progress = calculate_waf_progress(
+        df,
+        licensed_modules,
+        blocking_modules=blocking_modules,
+        application_ids=selected_application_ids,
+        application_capacity=st.session_state.get("licensed_application_capacity", 0),
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+    percent = progress["progress_percent"]
+    col1.metric("Progress to configured target", f"{percent:.1f}%" if percent is not None else "N/A")
+    col2.metric("Requirements met", progress["completed_checks"])
+    col3.metric("Known gaps", progress["missing_checks"])
+    col4.metric("Unconfirmed", progress["unknown_checks"])
+
+    capacity = progress["licensed_application_capacity"]
+    if capacity > 0:
+        capacity_percent = progress["capacity_percent"]
+        st.metric(
+            "Applications in scope / licensed capacity",
+            f"{progress['application_count']} / {capacity}",
+            delta=f"{capacity_percent:.1f}% of capacity",
+        )
+        if progress["application_count"] > capacity:
+            st.warning("The selected application scope exceeds the licensed application capacity.")
+    else:
+        st.metric(
+            "Applications in scope / licensed capacity",
+            f"{progress['application_count']} / not entered",
+        )
+
+    blocking_modules = set(st.session_state.get("blocking_modules", []))
+    st.caption(
+        "Formula: requirements met / (selected applications × licensed features). "
+        "Features marked for Blocking must be in a blocking state; other features "
+        "must be enabled/configured, with Report Only and Passive counted as active."
+    )
+    if blocking_modules:
+        st.caption("Blocking requirement: " + ", ".join(sorted(blocking_modules)))
+
+    if progress["unknown_checks"]:
+        st.warning(
+            "Unconfirmed states do not count as complete. Review these applications "
+            "and feature states before interpreting the percentage."
+        )
+
+    if licensed_modules and progress["application_count"]:
+        st.dataframe(
+            progress["applications"],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
 def render_application_adoption_dashboard(applications_response, client):
     st.subheader("Application Security Adoption")
 
@@ -514,6 +596,8 @@ def render_application_adoption_dashboard(applications_response, client):
     if df.empty:
         st.warning("No application adoption data found.")
         return
+
+    render_waf_progress_dashboard(df)
 
     metrics = calculate_adoption_metrics(df)
 

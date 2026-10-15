@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 from modules.entitlement_profiles import is_module_licensed
+from modules.waf_progress import is_disabled, is_enabled, is_report_only
 
 HIGH_RISK_DISABLED_MODULES = [
     "SQL Injection",
@@ -28,44 +29,6 @@ VISIBILITY_MODULES = [
     "Export Security Logs",
     "Export Access Logs",
 ]
-
-
-def is_disabled(value):
-    if value is None:
-        return False
-
-    value = str(value).lower()
-
-    return (
-        "disabled" in value
-        or "disable" in value
-        or "not configured" in value
-        or value == "false"
-    )
-
-
-def is_report_only(value):
-    if value is None:
-        return False
-
-    value = str(value).lower()
-
-    return "report only" in value or "report_only" in value or "passive" in value
-
-
-def is_enabled(value):
-    if value is None:
-        return False
-
-    value = str(value).lower()
-
-    return (
-        "enabled" in value
-        or "active" in value
-        or "blocking" in value
-        or "configured" in value
-        or value == "true"
-    )
 
 
 def add_recommendation(rows, app_name, severity, finding, recommendation):
@@ -200,6 +163,10 @@ def style_severity(value):
 
 def render_security_recommendations_dashboard():
     st.subheader("Security Recommendations")
+
+    if not st.session_state.get("licensed_modules"):
+        st.info("Select the customer's licensed WAF features to evaluate recommendations.")
+        return
 
     if "application_adoption_df" not in st.session_state:
         st.warning("Application Adoption data is not available yet. Run the Application Adoption module first.")

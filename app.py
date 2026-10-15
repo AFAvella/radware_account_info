@@ -27,7 +27,7 @@ with st.sidebar:
     )
 
     connect = st.button("Test Connection")
-    render_entitlement_selector()
+    render_entitlement_selector(context)
 
 if connect:
     if not api_key or not context:
@@ -66,11 +66,17 @@ if connect:
 
 if "applications_result" in st.session_state and "client" in st.session_state:
 
-    render_application_adoption_dashboard(
-        st.session_state["applications_result"],
-        st.session_state["client"]
-    )
+    if (
+        st.session_state.get("context") != context
+        or st.session_state.get("context_type") != context_type
+    ):
+        st.info("The connection inputs differ from the loaded data. Test the connection to refresh the dashboard.")
+    else:
+        render_application_adoption_dashboard(
+            st.session_state["applications_result"],
+            st.session_state["client"]
+        )
 
-    st.divider()
+        st.divider()
 
-    render_security_recommendations_dashboard()
+        render_security_recommendations_dashboard()
